@@ -35,6 +35,7 @@
 #define REG_FINGERS					0x10
 #define REG_MAX_NUM_TOUCHES			0x3f
 #define REG_MISC_CONTROL			0xf1
+#define REG_SMART_WAKEUP			0xf2
 #define REG_CHIP_ID					0xf4
 
 #define LINE_RESET					6
@@ -130,6 +131,26 @@ int main(int argc, char **argv)
 			}
 
 			// we detected a falling edge, do a readout
+		}
+
+		// check if there was a smart wakeup event
+		uint8_t swu;
+		if (_i2c_read_reg(i2c_fd, REG_SMART_WAKEUP, &swu, sizeof(swu)) < 0)
+		{
+			perror("i2c_read_reg(REG_SMART_WAKEUP)");
+			return -1;
+		}
+
+		if (swu)
+		{
+			printf(" ! swu: %d\r\n", swu);
+
+			swu = 0;
+			if (_i2c_write_reg(i2c_fd, REG_SMART_WAKEUP, &swu, sizeof(swu)) < 0)
+			{
+				perror("i2c_write_reg(REG_SMART_WAKEUP)");
+				return -1;
+			}
 		}
 
 		// do touch data readout
@@ -262,7 +283,7 @@ static int _i2c_open(const char *dev_path, uint8_t address)
 		return -1;
 	}
 
-	// enable the keys and gestures
+	// enable the smart wake-up feature
 	misc |= 0x80;
 
 	if (_i2c_write_reg(i2c_fd, REG_MISC_CONTROL, &misc, sizeof(misc)) < 0)
