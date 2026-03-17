@@ -34,6 +34,7 @@
 #define REG_FW_REVISION				0x0c
 #define REG_FINGERS					0x10
 #define REG_MAX_NUM_TOUCHES			0x3f
+#define REG_MISC_CONTROL			0xf1
 #define REG_CHIP_ID					0xf4
 
 #define LINE_RESET					6
@@ -252,6 +253,25 @@ static int _i2c_open(const char *dev_path, uint8_t address)
 	}
 
 	printf("max touches: %d\r\n", max_touches);
+
+	// enable keys and gestures
+	uint8_t misc;
+	if (_i2c_read_reg(i2c_fd, REG_MISC_CONTORL, &misc, sizeof(misc)) < 0)
+	{
+		perror("i2c_read_reg(REG_MISC_CONTORL)");
+		return -1;
+	}
+
+	// enable the keys and gestures
+	misc |= 0x80;
+
+	if (_i2c_write_reg(i2c_fd, REG_MISC_CONTROL, misc, sizeof(misc)) < 0)
+	{
+		perror("_i2c_write_reg(REG_MISC_CONTROL)");
+		return -1;
+	}
+
+	printf("enabled keys and gesture recognition\r\n");
 
 	return i2c_fd;
 }
