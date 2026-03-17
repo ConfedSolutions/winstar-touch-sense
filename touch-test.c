@@ -23,6 +23,10 @@
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
 
+/** Not supported by the CF1124
+ */
+#define USE_SMART_WAKEUP			1
+
 #define MIN(a, b)					((a) > (b) ? (b) : (a))
 
 #define ARRAY_SIZEOF(x)				(sizeof(x) / (sizeof(x[0])))
@@ -55,10 +59,9 @@ int main(int argc, char **argv)
 	// parse the command line options
 	int poll_interval_ms = 10;
 	int do_irq_watch = 0;
-	int do_gestures = 0;
 
 	int opt = 0;
-	while ((opt = getopt(argc, argv, "p:ig")) != -1)
+	while ((opt = getopt(argc, argv, "p:i")) != -1)
 	{
 		switch (opt)
 		{
@@ -74,10 +77,6 @@ int main(int argc, char **argv)
 
 		case 'i':
 			do_irq_watch = 1;
-			break;
-
-		case 'g':
-			do_gestures = 1;
 			break;
 
 		default:
@@ -120,7 +119,7 @@ int main(int argc, char **argv)
 	while (true)
 	{
 		// use IRQ watch if requested
-		if (do_irq_watch) // TODO add? && gpiod_line_request_get_value(io_irq, LINE_IRQ) != GPIOD_LINE_VALUE_ACTIVE)
+		if (do_irq_watch)
 		{
 			// wait for a falling edge
 			int ret = gpiod_line_request_read_edge_events(io_irq, event_buffer, GPIOD_EVENT_BUFFER_SIZE);
@@ -133,6 +132,7 @@ int main(int argc, char **argv)
 			// we detected a falling edge, do a readout
 		}
 
+#if USE_SMART_WAKEUP
 		// check if there was a smart wakeup event
 		uint8_t swu;
 		if (_i2c_read_reg(i2c_fd, REG_SMART_WAKEUP, &swu, sizeof(swu)) < 0)
@@ -152,6 +152,7 @@ int main(int argc, char **argv)
 				return -1;
 			}
 		}
+#endif
 
 		// do touch data readout
 		uint8_t buffer[2 + (4 * CF1124_MAX_FINGERS)];
@@ -161,15 +162,16 @@ int main(int argc, char **argv)
 			break;
 		}
 
-		// check if gesture was made
+		// check if gesture was made (not supported by CF1124)
 		if (buffer[0])
 			printf(" ! gesture: %d\r\n", buffer[0]);
 
-		// check if a key was pressed
+		// check if a key was pressed (not supported by CF1124)
 		if (buffer[1])
 			printf(" ! key: %d\r\n", buffer[1]);
 
-		// process the multi-touch data
+		// process the "multi-"touch data
+		int bogus_read = 0;
 		for (int idx = 0; idx < CF1124_MAX_FINGERS; ++idx)
 		{
 			// check if a touch is present
@@ -181,7 +183,7 @@ int main(int argc, char **argv)
 				int32_t y = ((buffer[(4 * idx) + 2] & 0x0F) << 8)
 								| (buffer[(4 * idx) + 4]);
 
-				// rotate the coordinates to reality
+				// rotate the coordinates to reality for our product
 				int32_t temp = 320 - y;
 				y = x;
 				x = temp;
@@ -198,7 +200,13 @@ int main(int argc, char **argv)
 
 				last_touch[idx] = 0;
 			}
+			else if (idx == 0)
+				bogus_read = 1;
 		}
+
+		// notify if there was a bogus read
+		if (bogus_read && do_irq_watch)
+			printf("useless interrupt received\r\n");
 
 		// sleep for the poll interval if not in IRQ mode readout
 		if (! do_irq_watch)
@@ -215,7 +223,7 @@ int main(int argc, char **argv)
 	return EXIT_SUCCESS;
 
 print_usage:
-	printf("usage: %s [-p poll_interval_ms] [-i] [-g]\r\n", argv[0]);
+	printf("usage: %s [-p poll_interval_ms] [-i]\r\n", argv[0]);
 
 	return -EXIT_FAILURE;
 }
@@ -275,6 +283,7 @@ static int _i2c_open(const char *dev_path, uint8_t address)
 
 	printf("max touches: %d\r\n", max_touches);
 
+#if USE_SMART_WAKEUP
 	// enable keys and gestures
 	uint8_t misc;
 	if (_i2c_read_reg(i2c_fd, REG_MISC_CONTROL, &misc, sizeof(misc)) < 0)
@@ -293,6 +302,7 @@ static int _i2c_open(const char *dev_path, uint8_t address)
 	}
 
 	printf("enabled keys and gesture recognition\r\n");
+#endif
 
 	return i2c_fd;
 }
