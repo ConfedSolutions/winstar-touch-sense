@@ -256,7 +256,7 @@ static int _i2c_open(const char *dev_path, uint8_t address)
 
 	// enable keys and gestures
 	uint8_t misc;
-	if (_i2c_read_reg(i2c_fd, REG_MISC_CONTORL, &misc, sizeof(misc)) < 0)
+	if (_i2c_read_reg(i2c_fd, REG_MISC_CONTROL, &misc, sizeof(misc)) < 0)
 	{
 		perror("i2c_read_reg(REG_MISC_CONTORL)");
 		return -1;
@@ -265,7 +265,7 @@ static int _i2c_open(const char *dev_path, uint8_t address)
 	// enable the keys and gestures
 	misc |= 0x80;
 
-	if (_i2c_write_reg(i2c_fd, REG_MISC_CONTROL, misc, sizeof(misc)) < 0)
+	if (_i2c_write_reg(i2c_fd, REG_MISC_CONTROL, &misc, sizeof(misc)) < 0)
 	{
 		perror("_i2c_write_reg(REG_MISC_CONTROL)");
 		return -1;
