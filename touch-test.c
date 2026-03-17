@@ -28,9 +28,13 @@
 #define ARRAY_SIZEOF(x)				(sizeof(x) / (sizeof(x[0])))
 
 #define CF1124_ADDRESS				0x55
-#define CF1124_MAX_FINGERS			4
+#define CF1124_MAX_FINGERS			2
 
-#define REG_TOUCH_DATA				0x10
+#define REG_FW_VERSION				0x00
+#define REG_FW_REVISION				0x0c
+#define REG_FINGERS					0x10
+#define REG_MAX_NUM_TOUCHES			0x3f
+#define REG_CHIP_ID					0xf4
 
 #define LINE_RESET					6
 #define LINE_IRQ					27
@@ -127,49 +131,50 @@ int main(int argc, char **argv)
 			// we detected a falling edge, do a readout
 		}
 
-		if (do_gestures)
+		// do touch data readout
+		uint8_t buffer[2 + (4 * CF1124_MAX_FINGERS)];
+		if (_i2c_read_reg(i2c_fd, REG_FINGERS, buffer, sizeof(buffer)) < 0)
 		{
-			// TODO do gesture readout
+			perror("i2c_read_reg(REG_FINGERS)");
+			break;
 		}
-		else
+
+		// check if gesture was made
+		if (buffer[0])
+			printf(" ! gesture: %d\r\n", buffer[0]);
+
+		// check if a key was pressed
+		if (buffer[1])
+			printf(" ! key: %d\r\n", buffer[1]);
+
+		// process the multi-touch data
+		for (int idx = 0; idx < CF1124_MAX_FINGERS; ++idx)
 		{
-			// do touch data readout
-			uint8_t buffer[40];
-			if (_i2c_read_reg(i2c_fd, REG_TOUCH_DATA, buffer, sizeof(buffer)) < 0)
+			// check if a touch is present
+			if (buffer[(4 * idx) + 2] & 0x80)
 			{
-				perror("i2c_read_reg(REG_TOUCH_DATA)");
-				break;
+				// readout the touch data
+				int32_t x = ((buffer[(4 * idx) + 2] & 0x70) << 4)
+								| (buffer[(4 * idx) + 3]);
+				int32_t y = ((buffer[(4 * idx) + 2] & 0x0F) << 8)
+								| (buffer[(4 * idx) + 4]);
+
+				// rotate the coordinates to reality
+				int32_t temp = 320 - y;
+				y = x;
+				x = temp;
+
+				// mark that a touch is being made
+				last_touch[idx] = 1;
+
+				// print our touch info to the console
+				printf("touch %d = (x: %ld - y: %ld)\r\n", idx, x, y);
 			}
-
-			// process the multi-touch data
-			for (int idx = 0; idx < CF1124_MAX_FINGERS; ++idx)
+			else if (last_touch[idx])
 			{
-				// check if a touch is present
-				if (buffer[(4 * idx) + 2] & 0x80)
-				{
-					// readout the touch data
-					int32_t x = ((buffer[(4 * idx) + 2] & 0x70) << 4)
-									| (buffer[(4 * idx) + 3]);
-					int32_t y = ((buffer[(4 * idx) + 2] & 0x07) << 8)
-									| (buffer[(4 * idx) + 4]);
+				printf("touch %d released\r\n", idx);
 
-					// rotate the coordinates to reality
-					int32_t temp = 320 - y;
-					y = x;
-					x = temp;
-
-					// mark that a touch is being made
-					last_touch[idx] = 1;
-
-					// print our touch info to the console
-					printf("touch %d = (x: %ld - y: %ld)\r\n", idx, x, y);
-				}
-				else if (last_touch[idx])
-				{
-					printf("touch %d released\r\n", idx);
-
-					last_touch[idx] = 0;
-				}
+				last_touch[idx] = 0;
 			}
 		}
 
@@ -206,9 +211,47 @@ static int _i2c_open(const char *dev_path, uint8_t address)
 	// set the slave address
 	if (ioctl(i2c_fd, I2C_SLAVE, address) < 0)
 	{
-		perror("IOCTL(I2C_SLAVE)");
+		perror("ioctl(I2C_SLAVE)");
 		return -1;
 	}
+
+	// read the chip ID
+	uint8_t chip_id;
+	if (_i2c_read_reg(i2c_fd, REG_CHIP_ID, &chip_id, sizeof(chip_id)) < 0)
+	{
+		perror("i2c_read_reg(REG_CHIP_ID)");
+		return -1;
+	}
+
+	printf("found CF1124: ID = 0x%02x\r\n", chip_id);
+
+	// read the version information
+	uint8_t fw_version;
+	if (_i2c_read_reg(i2c_fd, REG_FW_VERSION, &fw_version, sizeof(fw_version)) < 0)
+	{
+		perror("i2c_read_reg(REG_FW_VERSION)");
+		return -1;
+	}
+
+	uint8_t fw_revision[4];
+	if (_i2c_read_reg(i2c_fd, REG_FW_REVISION, fw_revision, sizeof(fw_revision)) < 0)
+	{
+		perror("i2c_read_reg(REG_FW_REVISION)");
+		return -1;
+	}
+
+	// print the firmware information
+	printf("firmware version: v%d.%d.%d.%d.%d\r\n", fw_version, fw_revision[3], fw_revision[2], fw_revision[1], fw_revision[0]);
+
+	// read the chip ID
+	uint8_t max_touches;
+	if (_i2c_read_reg(i2c_fd, REG_MAX_NUM_TOUCHES, &max_touches, sizeof(max_touches)) < 0)
+	{
+		perror("i2c_read_reg(REG_MAX_NUM_TOUCHES)");
+		return -1;
+	}
+
+	printf("max touches: %d\r\n", max_touches);
 
 	return i2c_fd;
 }
