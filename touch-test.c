@@ -28,11 +28,13 @@
 #define ARRAY_SIZEOF(x)				(sizeof(x) / (sizeof(x[0])))
 
 #define CF1124_ADDRESS				0x55
+#define CF1124_MAX_FINGERS			4
 
 #define REG_TOUCH_DATA				0x10
 
 #define LINE_RESET					6
 #define LINE_IRQ					27
+#define GPIOD_EVENT_BUFFER_SIZE		1
 
 static struct gpiod_line_request* _gpiod_request_output_line(const char *path, uint32_t offset, bool active_low, enum gpiod_line_value value, const char *consumer);
 static struct gpiod_line_request* _gpiod_request_input_line(const char *path, uint32_t offset, bool active_low, const char *consumer);
@@ -45,7 +47,7 @@ static int _i2c_read_reg(int fd, uint8_t reg, uint8_t *data, size_t data_len);
 int main(int argc, char **argv)
 {
 	// parse the command line options
-	int poll_interval_ms = 100;
+	int poll_interval_ms = 10;
 	int do_irq_watch = 0;
 	int do_gestures = 0;
 
@@ -94,10 +96,36 @@ int main(int argc, char **argv)
 	if (_touch_do_initialize(i2c_fd, io_reset) < 0)
 		return -1;
 
+	// prepare for IRQ readout if requested
+	struct gpiod_edge_event_buffer *event_buffer = NULL;
+	struct gpiod_edge_event *event = NULL;
+	if (do_irq_watch)
+	{
+		event_buffer = gpiod_edge_event_buffer_new(GPIOD_EVENT_BUFFER_SIZE);
+		if (! event_buffer)
+		{
+			perror("gpiod_edge_event_buffer_new()");
+			return -1;
+		}
+	}
+
 	// readout the chip in the requested mode
+	uint8_t last_touch[CF1124_MAX_FINGERS];
 	while (true)
 	{
-		// TODO use IRQ watch
+		// use IRQ watch if requested
+		if (do_irq_watch) // TODO add? && gpiod_line_request_get_value(io_irq, LINE_IRQ) != GPIOD_LINE_VALUE_ACTIVE)
+		{
+			// wait for a falling edge
+			int ret = gpiod_line_request_read_edge_events(io_irq, event_buffer, GPIOD_EVENT_BUFFER_SIZE);
+			if (ret < 0)
+			{
+				perror("gpiod_line_request_read_edge_events()");
+				return -1;
+			}
+
+			// we detected a falling edge, do a readout
+		}
 
 		if (do_gestures)
 		{
@@ -105,7 +133,7 @@ int main(int argc, char **argv)
 		}
 		else
 		{
-			// do touch readout
+			// do touch data readout
 			uint8_t buffer[40];
 			if (_i2c_read_reg(i2c_fd, REG_TOUCH_DATA, buffer, sizeof(buffer)) < 0)
 			{
@@ -114,17 +142,33 @@ int main(int argc, char **argv)
 			}
 
 			// process the multi-touch data
-			for (int idx = 0; idx < 4; ++idx)
+			for (int idx = 0; idx < CF1124_MAX_FINGERS; ++idx)
 			{
 				// check if a touch is present
 				if (buffer[(4 * idx) + 2] & 0x80)
 				{
-					uint32_t x = ((buffer[(4 * idx) + 2] & 0x70) << 4)
+					// readout the touch data
+					int32_t x = ((buffer[(4 * idx) + 2] & 0x70) << 4)
 									| (buffer[(4 * idx) + 3]);
-					uint32_t y = ((buffer[(4 * idx) + 2] & 0x07) << 8)
+					int32_t y = ((buffer[(4 * idx) + 2] & 0x07) << 8)
 									| (buffer[(4 * idx) + 4]);
 
-					printf("finger %d = (x: %lu - y: %lu)\r\n", idx, x, y);
+					// rotate the coordinates to reality
+					int32_t temp = 320 - y;
+					y = x;
+					x = temp;
+
+					// mark that a touch is being made
+					last_touch[idx] = 1;
+
+					// print our touch info to the console
+					printf("touch %d = (x: %ld - y: %ld)\r\n", idx, x, y);
+				}
+				else if (last_touch[idx])
+				{
+					printf("touch %d released\r\n", idx);
+
+					last_touch[idx] = 0;
 				}
 			}
 		}
@@ -153,6 +197,11 @@ static int _i2c_open(const char *dev_path, uint8_t address)
 {
 	// open the SPI bus
 	int i2c_fd = open(dev_path, O_RDWR);
+	if (i2c_fd < 0)
+	{
+		perror("open(i2c_dev)");
+		return -1;
+	}
 
 	// set the slave address
 	if (ioctl(i2c_fd, I2C_SLAVE, address) < 0)
@@ -227,6 +276,7 @@ static struct gpiod_line_request* _gpiod_request_input_line(const char *path, ui
 		goto close_chip;
 
 	gpiod_line_settings_set_direction(settings, GPIOD_LINE_DIRECTION_INPUT);
+	gpiod_line_settings_set_edge_detection(settings, GPIOD_LINE_EDGE_FALLING);
 	gpiod_line_settings_set_active_low(settings, active_low);
 
 	struct gpiod_line_config *line_cfg = gpiod_line_config_new();
