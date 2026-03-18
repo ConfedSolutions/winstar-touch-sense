@@ -25,7 +25,7 @@
 
 /** Not supported by the CF1124
  */
-#define USE_SMART_WAKEUP			1
+#define USE_SMART_WAKEUP			0
 
 #define MIN(a, b)					((a) > (b) ? (b) : (a))
 
