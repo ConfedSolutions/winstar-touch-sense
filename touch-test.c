@@ -25,7 +25,7 @@
 
 /** Not supported by the CF1124
  */
-#define USE_SMART_WAKEUP			0
+#define USE_SMART_WAKEUP			1
 
 #define MIN(a, b)					((a) > (b) ? (b) : (a))
 
@@ -246,81 +246,6 @@ static int _i2c_open(const char *dev_path, uint8_t address)
 		return -1;
 	}
 
-	// read the chip ID
-	uint8_t chip_id;
-	if (_i2c_read_reg(i2c_fd, REG_CHIP_ID, &chip_id, sizeof(chip_id)) < 0)
-	{
-		perror("i2c_read_reg(REG_CHIP_ID)");
-		return -1;
-	}
-
-	printf("found CF1124: ID = 0x%02x\r\n", chip_id);
-
-	// read the version information
-	uint8_t fw_version;
-	if (_i2c_read_reg(i2c_fd, REG_FW_VERSION, &fw_version, sizeof(fw_version)) < 0)
-	{
-		perror("i2c_read_reg(REG_FW_VERSION)");
-		return -1;
-	}
-
-	uint8_t fw_revision[4];
-	if (_i2c_read_reg(i2c_fd, REG_FW_REVISION, fw_revision, sizeof(fw_revision)) < 0)
-	{
-		perror("i2c_read_reg(REG_FW_REVISION)");
-		return -1;
-	}
-
-	// print the firmware information
-	printf("firmware version: v%d.%d.%d.%d.%d\r\n", fw_version, fw_revision[3], fw_revision[2], fw_revision[1], fw_revision[0]);
-
-	// read the chip ID
-	uint8_t max_touches;
-	if (_i2c_read_reg(i2c_fd, REG_MAX_NUM_TOUCHES, &max_touches, sizeof(max_touches)) < 0)
-	{
-		perror("i2c_read_reg(REG_MAX_NUM_TOUCHES)");
-		return -1;
-	}
-
-	printf("max touches: %d\r\n", max_touches);
-
-	uint8_t resolution[3];
-	if (_i2c_read_reg(i2c_fd, REG_RESOLUTION_HIGH, resolution, sizeof(resolution)) < 0)
-	{
-		perror("i2c_read_reg(REG_RESOLUTION_HIGH)");
-		return -1;
-	}
-
-	// convert the data to the resolution
-	int32_t x = ((resolution[0] & 0x70) << 4)
-					| (resolution[1]);
-	int32_t y = ((resolution[0] & 0x0F) << 8)
-					| (resolution[2]);
-
-	// print the firmware information
-	printf("resolution: X = %d, Y = %d\r\n", x, y);
-
-#if USE_SMART_WAKEUP
-	// enable keys and gestures
-	uint8_t misc;
-	if (_i2c_read_reg(i2c_fd, REG_MISC_CONTROL, &misc, sizeof(misc)) < 0)
-	{
-		perror("i2c_read_reg(REG_MISC_CONTORL)");
-		return -1;
-	}
-
-	// enable the smart wake-up feature
-	misc |= 0x80;
-
-	if (_i2c_write_reg(i2c_fd, REG_MISC_CONTROL, &misc, sizeof(misc)) < 0)
-	{
-		perror("_i2c_write_reg(REG_MISC_CONTROL)");
-		return -1;
-	}
-
-	printf("enabled keys and gesture recognition\r\n");
-#endif
-
 	return i2c_fd;
 }
 
@@ -437,12 +362,88 @@ static int _touch_do_initialize(int i2c_fd, struct gpiod_line_request *io_reset)
 	if (gpiod_line_request_set_value(io_reset, LINE_RESET, GPIOD_LINE_VALUE_ACTIVE) < 0)
 		return -1;
 
-	usleep(100000);
+	usleep(10000);
 
 	if (gpiod_line_request_set_value(io_reset, LINE_RESET, GPIOD_LINE_VALUE_INACTIVE) < 0)
 		return -1;
 
-	usleep(250000);
+	usleep(150000);
+
+
+	// read the chip ID
+	uint8_t chip_id;
+	if (_i2c_read_reg(i2c_fd, REG_CHIP_ID, &chip_id, sizeof(chip_id)) < 0)
+	{
+		perror("i2c_read_reg(REG_CHIP_ID)");
+		return -1;
+	}
+
+	printf("found CF1124: ID = 0x%02x\r\n", chip_id);
+
+	// read the version information
+	uint8_t fw_version;
+	if (_i2c_read_reg(i2c_fd, REG_FW_VERSION, &fw_version, sizeof(fw_version)) < 0)
+	{
+		perror("i2c_read_reg(REG_FW_VERSION)");
+		return -1;
+	}
+
+	uint8_t fw_revision[4];
+	if (_i2c_read_reg(i2c_fd, REG_FW_REVISION, fw_revision, sizeof(fw_revision)) < 0)
+	{
+		perror("i2c_read_reg(REG_FW_REVISION)");
+		return -1;
+	}
+
+	// print the firmware information
+	printf("firmware version: v%d.%d.%d.%d.%d\r\n", fw_version, fw_revision[3], fw_revision[2], fw_revision[1], fw_revision[0]);
+
+	// read the chip ID
+	uint8_t max_touches;
+	if (_i2c_read_reg(i2c_fd, REG_MAX_NUM_TOUCHES, &max_touches, sizeof(max_touches)) < 0)
+	{
+		perror("i2c_read_reg(REG_MAX_NUM_TOUCHES)");
+		return -1;
+	}
+
+	printf("max touches: %d\r\n", max_touches);
+
+	uint8_t resolution[3];
+	if (_i2c_read_reg(i2c_fd, REG_RESOLUTION_HIGH, resolution, sizeof(resolution)) < 0)
+	{
+		perror("i2c_read_reg(REG_RESOLUTION_HIGH)");
+		return -1;
+	}
+
+	// convert the data to the resolution
+	int32_t x = ((resolution[0] & 0x70) << 4)
+					| (resolution[1]);
+	int32_t y = ((resolution[0] & 0x0F) << 8)
+					| (resolution[2]);
+
+	// print the firmware information
+	printf("resolution: X = %d, Y = %d\r\n", x, y);
+
+#if USE_SMART_WAKEUP
+	// enable keys and gestures
+	uint8_t misc;
+	if (_i2c_read_reg(i2c_fd, REG_MISC_CONTROL, &misc, sizeof(misc)) < 0)
+	{
+		perror("i2c_read_reg(REG_MISC_CONTORL)");
+		return -1;
+	}
+
+	// enable the smart wake-up feature
+	misc |= 0x80;
+
+	if (_i2c_write_reg(i2c_fd, REG_MISC_CONTROL, &misc, sizeof(misc)) < 0)
+	{
+		perror("_i2c_write_reg(REG_MISC_CONTROL)");
+		return -1;
+	}
+
+	printf("enabled keys and gesture recognition\r\n");
+#endif
 
 	return 0;
 }
