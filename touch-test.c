@@ -35,6 +35,7 @@
 #define CF1124_MAX_FINGERS			2
 
 #define REG_FW_VERSION				0x00
+#define REG_RESOLUTION_HIGH			0x04
 #define REG_FW_REVISION				0x0c
 #define REG_FINGERS					0x10
 #define REG_MAX_NUM_TOUCHES			0x3f
@@ -282,6 +283,22 @@ static int _i2c_open(const char *dev_path, uint8_t address)
 	}
 
 	printf("max touches: %d\r\n", max_touches);
+
+	uint8_t resolution[3];
+	if (_i2c_read_reg(i2c_fd, REG_RESOLUTION_HIGH, resolution, sizeof(resolution)) < 0)
+	{
+		perror("i2c_read_reg(REG_RESOLUTION_HIGH)");
+		return -1;
+	}
+
+	// convert the data to the resolution
+	int32_t x = ((resolution[0] & 0x70) << 4)
+					| (resolution[1]);
+	int32_t y = ((resolution[0] & 0x0F) << 8)
+					| (resolution[2]);
+
+	// print the firmware information
+	printf("resolution: X = %d, Y = %d\r\n", x, y);
 
 #if USE_SMART_WAKEUP
 	// enable keys and gestures
